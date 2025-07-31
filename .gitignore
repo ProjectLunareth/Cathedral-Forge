@@ -1,0 +1,72 @@
+# Codex: The Living Scrying Mirror - Git Ignore Rules
+
+# ===== ENVIRONMENT/CONFIGURATION =====
+.env
+*.env
+.env.local
+config_secret.json
+
+# ===== PYTHON ARTIFACTS =====
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.python-version
+.pytest_cache/
+.mypy_cache/
+
+# Virtual environments
+.env/
+venv/
+codex_env/
+ENV/
+env.bak/
+venv.bak/
+
+# ===== DEVELOPMENT TOOLS =====
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+*.log
+logs/
+
+# ===== SYSTEM ARTIFACTS =====
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# ===== BUILD/DEPLOYMENT =====
+dist/
+build/
+*.egg-info/
+*.egg
+.coverage
+.coverage.*
+htmlcov/
+
+# ===== DATABASE =====
+*.db
+*.sqlite3
+*.sqlite
+*.dump
+
+# ===== MEDIA/STORAGE =====
+media/
+uploads/
+staticfiles/
+
+# ===== NOTEBOOKS =====
+*.ipynb_checkpoints
+
+# ===== AI/MODELS =====
+*.h5
+*.pth
+*.pt
+*.joblib
+*.pkl
