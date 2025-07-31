@@ -1,0 +1,63 @@
+import argparse
+import os
+import json
+import time
+from ripple_interference_analyzer import run_interference_engine
+from glyph_lightform_renderer import render_glyphs
+from memory_loop_archiver import save_snapshot, load_snapshot
+
+SNAPSHOT_FILE = "lunareth_snapshot.json"
+
+def parse_arguments():
+    parser = argparse.ArgumentParser(description="Lunareth: Crystal Echo Engine")
+    parser.add_argument('--start-fresh', action='store_true', help='Reset memory and begin new ripple sequence')
+    parser.add_argument('--fast', action='store_true', help='Accelerate waveform and glyph propagation')
+    parser.add_argument('--mute', action='store_true', help='Disable all sound/musical feedback')
+    return parser.parse_args()
+
+def load_state(start_fresh: bool):
+    if start_fresh or not os.path.exists(SNAPSHOT_FILE):
+        print("[Lunareth] 🌀 Starting fresh cycle.")
+        return {
+            "time_step": 0,
+            "glyph_states": None
+        }
+    else:
+        print("[Lunareth] 🌙 Resuming from saved memory snapshot.")
+        return load_snapshot(SNAPSHOT_FILE)
+
+def main():
+    args = parse_arguments()
+    state = load_state(args.start_fresh)
+    
+    time_step = state.get("time_step", 0)
+    glyph_states = state.get("glyph_states", None)
+
+    while True:
+        print(f"\n[Phase ⟳] Timestep: {time_step}")
+        
+        # Run ripple simulation
+        updated_glyphs = run_interference_engine(
+            timestep=time_step,
+            previous_glyphs=glyph_states,
+            speed_factor=2.0 if args.fast else 1.0,
+            mute=args.mute
+        )
+
+        # Render the glyph lightform
+        render_glyphs(updated_glyphs, timestep=time_step)
+
+        # Save updated state
+        save_snapshot(SNAPSHOT_FILE, {
+            "time_step": time_step + 1,
+            "glyph_states": updated_glyphs
+        })
+
+        glyph_states = updated_glyphs
+        time_step += 1
+
+        # Delay for visual rhythm unless fast mode
+        time.sleep(0.5 if not args.fast else 0.1)
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,119 @@
+"""moon_node_engine.py – Ripple field & lunar factor generator
+-----------------------------------------------------------
+• Procedural ripple synthesis per glyph (deterministic via hash)
+• Automatic glyph cycling with switch_interval seconds
+• Animated ripple origins and phases
+• Public helpers:
+    - update(dt)                  advance simulation
+    - compute_field(grid_size)    return 2‑D NumPy array of field values
+    - get_current_moon_factor()   float 0‑1 sinusoid (full ↔︎ new moon)
+    - _current_bpm()              convenience for visual debug
+"""
+
+from __future__ import annotations
+
+import math
+import random
+from typing import List, Tuple
+
+import numpy as np
+
+# ────────────────────────── RIPPLE ──────────────────────────
+class Ripple:
+    def __init__(self, origin: Tuple[float, float], freq=1.0, amplitude=1.0, phase=0.0, speed=1.0):
+        self.origin = list(origin)              # mutable [x, y]
+        self.freq = freq
+        self.amplitude = amplitude
+        self.phase = phase                      # phase offset (radians)
+        self.speed = speed                      # radians s⁻¹
+
+    # --------------------------------------------------------
+    def update(self, dt: float, elapsed: float) -> None:
+        self.phase += self.speed * dt
+        # gently drift origin in Lissajous‑like path
+        self.origin[0] += math.sin(elapsed * 0.5 + self.phase) * 0.01
+        self.origin[1] += math.cos(elapsed * 0.7 + self.phase) * 0.01
+
+    # --------------------------------------------------------
+    def value_at(self, X: np.ndarray, Y: np.ndarray, t: float) -> np.ndarray:
+        r = np.hypot(X - self.origin[0], Y - self.origin[1]) + 1e-6
+        return self.amplitude * np.sin(r * self.freq - t + self.phase) / r
+
+
+# ────────────────────────── MOONNODE ────────────────────────
+class MoonNode:
+    def __init__(self, glyph_cycle: List[str]):
+        self.t = 0.0
+        self.elapsed_time = 0.0
+
+        self.glyph_cycle = glyph_cycle
+        self.current_index = 0
+        self.switch_interval = 8.0  # seconds per glyph
+        self.time_since_last_switch = 0.0
+
+        # lunar phase (seconds per full cycle) – shorter for realtime viz
+        self._lunar_period = 60.0  # 60 s → new→full→new
+
+        self.ripples: List[Ripple] = []
+        self._setup_ripples_for_glyph(self.glyph_cycle[self.current_index])
+
+    # --------------------------------------------------------
+    def _setup_ripples_for_glyph(self, glyph: str) -> None:
+        self.ripples.clear()
+        random.seed(hash(glyph) & 0xFFFFFFFF)  # deterministic across runs
+        for _ in range(4):
+            origin = (random.uniform(5, 25), random.uniform(5, 25))
+            freq = random.uniform(0.5, 1.5)
+            amp  = random.uniform(0.8, 1.2)
+            phase = random.uniform(0, 2 * math.pi)
+            speed = random.uniform(1.0, 3.0)
+            self.ripples.append(Ripple(origin, freq, amp, phase, speed))
+        self.cap_ripples(150)
+
+    # --------------------------------------------------------
+    def update(self, dt: float = 0.016, glyph_name: str | None = None) -> None:
+        self.t += dt
+        self.elapsed_time += dt
+        self.time_since_last_switch += dt
+
+        # auto‑cycle glyphs
+        if self.time_since_last_switch >= self.switch_interval:
+            self.current_index = (self.current_index + 1) % len(self.glyph_cycle)
+            self._setup_ripples_for_glyph(self.glyph_cycle[self.current_index])
+            self.time_since_last_switch = 0.0
+
+        # manual override
+        if glyph_name and glyph_name != self.glyph_cycle[self.current_index]:
+            self.current_index = self.glyph_cycle.index(glyph_name)
+            self._setup_ripples_for_glyph(glyph_name)
+            self.time_since_last_switch = 0.0
+
+        # animate ripples
+        for r in self.ripples:
+            r.update(dt, self.elapsed_time)
+
+        # enforce ripple count cap
+        self.cap_ripples(150)
+
+    # --------------------------------------------------------
+    def cap_ripples(self, max_count=150) -> None:
+        if len(self.ripples) > max_count:
+            self.ripples = self.ripples[-max_count:]
+
+    # --------------------------------------------------------
+    def compute_field(self, grid_size: Tuple[int, int], spacing: float = 1.0) -> np.ndarray:
+        w, h = grid_size
+        X, Y = np.meshgrid(np.arange(w) * spacing, np.arange(h) * spacing)
+        field = np.zeros_like(X, dtype=np.float64)
+        for r in self.ripples:
+            field += r.value_at(X, Y, self.t)
+        return field
+
+    # --------------------------------------------------------
+    def get_current_moon_factor(self) -> float:
+        """Sinusoidal 0→1→0 lunar factor over _lunar_period seconds."""
+        return 0.5 * (1 + math.sin(2 * math.pi * (self.t % self._lunar_period) / self._lunar_period))
+
+    # convenience for debug overlay
+    def _current_bpm(self) -> float:
+        return 60.0 / self.switch_interval if self.switch_interval else 0.0

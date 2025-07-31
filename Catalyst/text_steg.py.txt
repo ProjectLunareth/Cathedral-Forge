@@ -1,0 +1,29 @@
+# text_steg.py
+
+ZERO_WIDTH_SPACE = '\u200b'  # Binary 0
+ZERO_WIDTH_NON_JOINER = '\u200c'  # Binary 1
+DELIMITER = '\u200d'  # End of message
+
+def to_binary(message):
+    return ''.join(format(ord(char), '08b') for char in message)
+
+def from_binary(binary):
+    chars = [chr(int(binary[i:i+8], 2)) for i in range(0, len(binary), 8)]
+    return ''.join(chars)
+
+def encode(text, hidden_message):
+    binary = to_binary(hidden_message)
+    zwc = ''.join(ZERO_WIDTH_SPACE if bit == '0' else ZERO_WIDTH_NON_JOINER for bit in binary)
+    return text + zwc + DELIMITER
+
+def decode(text):
+    if DELIMITER not in text:
+        return None
+    zwc_sequence = text.split(DELIMITER)[0].split(DELIMITER)[-1]
+    zwc_binary = ''
+    for char in zwc_sequence:
+        if char == ZERO_WIDTH_SPACE:
+            zwc_binary += '0'
+        elif char == ZERO_WIDTH_NON_JOINER:
+            zwc_binary += '1'
+    return from_binary(zwc_binary)

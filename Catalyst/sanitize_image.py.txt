@@ -1,0 +1,12 @@
+from PIL import Image
+
+# Open and convert to RGB to strip alpha/transparency
+img = Image.open("cover.png").convert("RGB")
+
+# Optional: Resize if needed (you can skip this line if you want to keep original size)
+# img = img.resize((1000, 1333))  # maintains aspect ratio
+
+# Save a clean version
+img.save("sigil_clean.png", format="PNG")
+
+print("[+] cover_clean.png saved successfully.")

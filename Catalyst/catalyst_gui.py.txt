@@ -1,0 +1,58 @@
+import tkinter as tk
+from tkinter import filedialog, messagebox
+from stegano import lsb
+
+# Function to encode message into the image
+def encode_message_gui():
+    try:
+        # Get input and message from GUI
+        message = message_entry.get()
+        file_path = filedialog.askopenfilename(title="Select Image to Encode")
+        output_path = filedialog.asksaveasfilename(defaultextension=".png", title="Save Encoded Image As")
+        
+        if not file_path or not output_path or not message:
+            messagebox.showwarning("Input Error", "Please fill all fields and select files")
+            return
+        
+        encoded_image = lsb.hide(file_path, message)
+        encoded_image.save(output_path)
+        messagebox.showinfo("Success", "Message encoded and saved successfully.")
+    except Exception as e:
+        messagebox.showerror("Error", str(e))
+
+# Function to decode message from the image
+def decode_message_gui():
+    try:
+        file_path = filedialog.askopenfilename(title="Select Image to Decode")
+        if not file_path:
+            messagebox.showwarning("Input Error", "Please select an image file")
+            return
+        
+        hidden_message = lsb.reveal(file_path)
+        if hidden_message:
+            messagebox.showinfo("Decoded Message", f"Hidden message: {hidden_message}")
+        else:
+            messagebox.showwarning("No Hidden Message", "No message found in the selected image.")
+    except Exception as e:
+        messagebox.showerror("Error", str(e))
+
+# Initialize the main tkinter window
+root = tk.Tk()
+root.title("Catalyst GUI")
+
+# Create the labels and entry boxes for input
+message_label = tk.Label(root, text="Message to Encode:")
+message_label.pack(pady=5)
+
+message_entry = tk.Entry(root, width=50)
+message_entry.pack(pady=5)
+
+# Create encode and decode buttons
+encode_button = tk.Button(root, text="Encode Message", command=encode_message_gui)
+encode_button.pack(pady=10)
+
+decode_button = tk.Button(root, text="Decode Message", command=decode_message_gui)
+decode_button.pack(pady=10)
+
+# Start the GUI loop
+root.mainloop()

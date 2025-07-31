@@ -1,0 +1,14 @@
+# lunareth_debug.py
+from datetime import datetime
+
+DEBUG_FILE = open("lunareth_debug.log", "w", buffering=1)
+
+def dbg(msg):
+    """Timestamped print to terminal and file, safe for locked-up Pygame."""
+    stamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+    line = f"[{stamp}] {msg}"
+    print(line)
+    try:
+        DEBUG_FILE.write(line + "\n")
+    except Exception:
+        pass

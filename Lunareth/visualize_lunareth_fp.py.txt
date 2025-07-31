@@ -1,0 +1,226 @@
+import pygame
+from pygame.locals import *
+from OpenGL.GL import *
+from OpenGL.GLU import *
+import math
+import numpy as np
+from core import moon_node_engine
+import glyphs
+import sys
+
+pygame.init()
+
+WIDTH, HEIGHT = 800, 800
+GRID_SPACING = 15
+SCALE = 25
+
+PHASE_POLYGON_SIDES = {
+    "KIV-EEN": 3,
+    "EST-ONN": 3,
+    "ØRU-KAI": 4,
+    "VEH-TAL": 5,
+    "ZUN-RAEK": 6,
+    "KEL-TORUN": 6,
+    "NAR-AETH": 7,
+    "SHA-RUL": 7,
+    "UTH-NAKH": 8,
+    "DREZ-VUKH": 8,
+    "VHEL-SURIK": 9,
+    "KAI-ELUN": 9,
+    "RHI-TUUM": 10,
+    "XAH-MORU": 12,
+}
+
+GLYPH_ORDER = list(PHASE_POLYGON_SIDES.keys())
+
+MIN_RADIUS_TO_DRAW = 3
+BG_COLOR = (10 / 255, 10 / 255, 30 / 255, 1.0)  # OpenGL uses floats 0-1
+
+GRID_WIDTH = WIDTH // GRID_SPACING
+GRID_HEIGHT = HEIGHT // GRID_SPACING
+
+def lerp(a, b, t):
+    return a + (b - a) * t
+
+def decay_factor(x, y, center_x, center_y, max_dist):
+    dist = math.sqrt((x - center_x)**2 + (y - center_y)**2)
+    normalized = min(dist / max_dist, 1.0)
+    return 0.5 * (1 + math.cos(normalized * math.pi))
+
+def get_polygon_sides_for_glyph(glyph_name):
+    return PHASE_POLYGON_SIDES.get(glyph_name, 6)
+
+def color_lerp(c1, c2, t):
+    return tuple(lerp(a, b, t) for a, b in zip(c1, c2))
+
+def draw_polygon_gl(x, y, radius, sides, color):
+    if sides < 3:
+        sides = 3
+    glColor4f(*color)
+    glBegin(GL_LINE_LOOP)
+    for i in range(sides):
+        angle = 2 * math.pi * i / sides - math.pi/2
+        glVertex2f(x + radius * math.cos(angle), y + radius * math.sin(angle))
+    glEnd()
+
+def main():
+    pygame.display.set_mode((WIDTH, HEIGHT), DOUBLEBUF | OPENGL)
+    pygame.display.set_caption("Lunareth Ripple Visualizer (OpenGL)")
+
+    glViewport(0, 0, WIDTH, HEIGHT)
+    glMatrixMode(GL_PROJECTION)
+    glLoadIdentity()
+    # Set orthographic projection with (0,0) top-left, (WIDTH, HEIGHT) bottom-right
+    gluOrtho2D(0, WIDTH, HEIGHT, 0)
+    glMatrixMode(GL_MODELVIEW)
+    glLoadIdentity()
+
+    clock = pygame.time.Clock()
+    moon_node = moon_node_engine.MoonNode(glyph_cycle=GLYPH_ORDER)
+
+    zoom = 1.0
+    offset_x, offset_y = 0, 0
+
+    running = True
+    dt = 1/60
+    phase_duration = 5.0
+    phase_timer = 0.0
+    current_index = 0
+    next_index = 1
+    manual_mode = False
+    total_elapsed = 0.0
+
+    center_x = WIDTH / 2
+    center_y = HEIGHT / 2
+    max_dist = math.sqrt(center_x**2 + center_y**2)
+
+    while running:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
+
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    running = False
+                elif event.key == pygame.K_RIGHT:
+                    manual_mode = True
+                    current_index = (current_index + 1) % len(GLYPH_ORDER)
+                    next_index = (current_index + 1) % len(GLYPH_ORDER)
+                    phase_timer = 0
+                elif event.key == pygame.K_LEFT:
+                    manual_mode = True
+                    current_index = (current_index - 1) % len(GLYPH_ORDER)
+                    next_index = (current_index + 1) % len(GLYPH_ORDER)
+                    phase_timer = 0
+                elif event.key == pygame.K_UP:
+                    zoom = min(5.0, zoom + 0.1)
+                elif event.key == pygame.K_DOWN:
+                    zoom = max(0.2, zoom - 0.1)
+                elif event.key == pygame.K_SPACE:
+                    zoom = 1.0
+                    offset_x, offset_y = 0, 0
+
+            elif event.type == pygame.MOUSEMOTION:
+                if pygame.mouse.get_pressed()[0]:
+                    mx, my = event.rel
+                    offset_x += mx
+                    offset_y += my
+
+        if not manual_mode:
+            phase_timer += dt
+            if phase_timer >= phase_duration:
+                phase_timer -= phase_duration
+                current_index = (current_index + 1) % len(GLYPH_ORDER)
+                next_index = (current_index + 1) % len(GLYPH_ORDER)
+
+        current_glyph = GLYPH_ORDER[current_index]
+        next_glyph = GLYPH_ORDER[next_index]
+        t = phase_timer / phase_duration
+
+        if not manual_mode:
+            moon_node.update(dt=dt)
+
+        moon_factor = moon_node.get_current_moon_factor()
+        total_elapsed += dt
+
+        # Clear screen
+        glClearColor(*BG_COLOR)
+        glClear(GL_COLOR_BUFFER_BIT)
+
+        sides_current = get_polygon_sides_for_glyph(current_glyph)
+        sides_next = get_polygon_sides_for_glyph(next_glyph)
+        sides_interp = lerp(sides_current, sides_next, t)
+
+        # Compute moon field once
+        field = moon_node.compute_field((GRID_WIDTH, GRID_HEIGHT), spacing=1.0)
+
+        grid_pixel_width = (GRID_WIDTH - 1) * GRID_SPACING * zoom
+        grid_pixel_height = (GRID_HEIGHT - 1) * GRID_SPACING * zoom
+
+        for i in range(GRID_HEIGHT):
+            for j in range(GRID_WIDTH):
+                val = field[i][j]
+                x = j * GRID_SPACING * zoom + offset_x
+                y = i * GRID_SPACING * zoom + offset_y
+
+                x_centered = x + (center_x - grid_pixel_width / 2)
+                y_centered = y + (center_y - grid_pixel_height / 2)
+
+                if x_centered < -GRID_SPACING or x_centered > WIDTH + GRID_SPACING:
+                    continue
+                if y_centered < -GRID_SPACING or y_centered > HEIGHT + GRID_SPACING:
+                    continue
+
+                decay = decay_factor(x_centered, y_centered, center_x, center_y, max_dist)
+                harmonic_mult = decay
+                phase_breath = 0.15 * math.sin(total_elapsed * 0.6 + (x_centered + y_centered) * 0.02)
+
+                radius_current = abs(val) * SCALE * (1 - t) * harmonic_mult
+                radius_next = abs(val) * SCALE * t * harmonic_mult
+                radius = (radius_current + radius_next) * (1 + phase_breath)
+
+                if radius < MIN_RADIUS_TO_DRAW:
+                    continue
+
+                # Colors normalized [0..1]
+                color_current = (100/255, 180/255, 255/255, 1.0)
+                color_next = (180/255, 220/255, 255/255, 1.0)
+                base_intensity = 120 + 135 * moon_factor * abs(val) * decay
+                intensity_current = min(255, max(50, int(base_intensity * (1 - t)))) / 255
+                intensity_next = min(255, max(50, int(base_intensity * t))) / 255
+
+                color_c = tuple(c * intensity_current for c in color_current)
+                color_n = tuple(c * intensity_next for c in color_next)
+                color = color_lerp(color_c, color_n, t)
+
+                draw_polygon_gl(x_centered, y_centered, radius, max(3, round(sides_interp)), color)
+
+        # Optionally draw text with pygame font on top (slower, but okay)
+        # You can render text on a separate pygame Surface, convert to texture and draw with OpenGL
+        # Or keep it simple and draw text last with pygame blit
+        # Here we'll do last step with pygame for simplicity:
+
+        # Switch to 2D pygame overlay for text
+        glFlush()
+        pygame.display.flip()
+        screen = pygame.display.get_surface()
+        screen.fill((0,0,0,0))  # transparent, no overwrite of GL
+
+        font = pygame.font.SysFont("Consolas", 20, bold=True)
+        interp_sides_text = f"{max(3, round(sides_interp))}"
+        text = f"Transitioning: {current_glyph} → {next_glyph} | Sides: {interp_sides_text}"
+        text_surf = font.render(text, True, (200, 200, 255))
+        screen.blit(text_surf, (10, 10))
+
+        fps = clock.get_fps()
+        fps_text = font.render(f"FPS: {fps:.1f}", True, (255, 255, 255))
+        screen.blit(fps_text, (WIDTH - 100, 10))
+
+        pygame.display.flip()
+        clock.tick(60)
+
+    pygame.quit()
+    sys.exit()
+
+if __name__ == "__main__":
+    main()

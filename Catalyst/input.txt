@@ -1,0 +1,2 @@
+This is the original text where we will hide the secret message.
+The message will be encoded using zero-width characters.

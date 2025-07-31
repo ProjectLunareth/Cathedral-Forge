@@ -1,0 +1,18 @@
+# C:\Lunareth\grid.py
+
+import math
+from typing import List, Tuple
+
+def generate_spiral_grid(num_points: int, spacing: float = 1.0) -> List[Tuple[float, float]]:
+    """Golden angle spiral layout — for lunar tide & memory rhythm."""
+    points = []
+    golden_angle = math.pi * (3 - math.sqrt(5))  # ~137.5°
+
+    for n in range(num_points):
+        r = spacing * math.sqrt(n)
+        theta = n * golden_angle
+        x = r * math.cos(theta)
+        y = r * math.sin(theta)
+        points.append((x, y))
+
+    return points

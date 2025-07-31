@@ -1,0 +1,79 @@
+# core/memory_loop_archiver.py
+
+import json
+import time
+import threading
+from typing import List, Dict, Optional
+
+STACK_FILE = "glyph_memory_stack.json"
+MAX_STACK_DEPTH = 50  # Adjust as needed
+
+_lock = threading.Lock()
+
+# Each glyph entry: { "id": str, "timestamp": float }
+_glyph_memory_stack: List[Dict[str, float]] = []
+
+def _load_stack_from_disk() -> None:
+    global _glyph_memory_stack
+    try:
+        with open(STACK_FILE, "r") as f:
+            data = json.load(f)
+            if isinstance(data, list):
+                _glyph_memory_stack = data
+    except FileNotFoundError:
+        _glyph_memory_stack = []
+    except Exception as e:
+        print(f"Error loading glyph memory stack: {e}")
+        _glyph_memory_stack = []
+
+def _save_stack_to_disk() -> None:
+    try:
+        with open(STACK_FILE, "w") as f:
+            json.dump(_glyph_memory_stack, f, indent=2)
+    except Exception as e:
+        print(f"Error saving glyph memory stack: {e}")
+
+def get_glyph_memory_stack() -> List[Dict[str, float]]:
+    """
+    Returns a copy of the current glyph memory stack with timestamps.
+    Each entry is a dict: { "id": glyph_id, "timestamp": epoch_time }
+    """
+    with _lock:
+        return _glyph_memory_stack.copy()
+
+def push_glyph_to_stack(glyph_id: str) -> None:
+    """
+    Add a glyph id with current timestamp to the memory stack.
+    Evicts oldest if max depth exceeded.
+    """
+    with _lock:
+        entry = {"id": glyph_id, "timestamp": time.time()}
+        _glyph_memory_stack.append(entry)
+        # Evict oldest if over limit
+        while len(_glyph_memory_stack) > MAX_STACK_DEPTH:
+            _glyph_memory_stack.pop(0)
+        _save_stack_to_disk()
+
+def pop_glyph_from_stack() -> Optional[Dict[str, float]]:
+    """
+    Remove and return the most recent glyph entry from the stack.
+    Returns None if stack is empty.
+    """
+    with _lock:
+        if _glyph_memory_stack:
+            entry = _glyph_memory_stack.pop()
+            _save_stack_to_disk()
+            return entry
+        else:
+            return None
+
+def clear_glyph_memory_stack() -> None:
+    """
+    Clear the entire glyph memory stack.
+    """
+    with _lock:
+        _glyph_memory_stack.clear()
+        _save_stack_to_disk()
+
+# Initialize stack on module load
+_load_stack_from_disk()

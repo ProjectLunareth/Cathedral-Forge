@@ -1,0 +1,15 @@
+# C:\Lunareth\config.py
+
+GLYPH_NAMES = [
+    "EST-ONN", "ØRU-KAI", "VEH-TAL", "ZUN-RAEK", "KEL-TORUN",
+    "NAR-AETH", "SHA-RUL", "UTH-NAKH", "DREZ-VUKH", "VHEL-SURIK",
+    "KAI-ELUN", "RHI-TUUM", "XAH-MORU"
+]
+
+RITUAL_MEANINGS = [
+    "Reflection", "Silence", "Spark", "Initiate", "Fracture",
+    "Mirror", "Echo", "Collapse", "Memory", "Mutate",
+    "Bloom", "Absorb", "Transcend"
+]
+
+SYSTEM_INTENTION = "The crystal echoes of memory under moonlight."

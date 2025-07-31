@@ -1,0 +1,94 @@
+import math
+from dataclasses import dataclass, field
+from typing import List, Tuple
+
+@dataclass
+class Ripple:
+    origin: Tuple[float, float]
+    amplitude: float
+    frequency: float
+    phase_shift: float
+    timestamp: float
+    glyph_id: str
+
+    def value_at(self, x: float, y: float, t: float) -> float:
+        """Compute the ripple height at position (x, y) and time t."""
+        dx, dy = x - self.origin[0], y - self.origin[1]
+        dist = math.sqrt(dx ** 2 + dy ** 2)
+        # Wave formula: amplitude * sin(2π * freq * (time - timestamp) - distance + phase shift)
+        wave = self.amplitude * math.sin(2 * math.pi * self.frequency * (t - self.timestamp) - dist + self.phase_shift)
+        return wave
+
+@dataclass
+class MoonNode:
+    position: Tuple[float, float]
+    pulse_rate: float  # pulses per second (Hz)
+    glyph_cycle: List[str]
+    t: float = 0.0
+    ripples: List[Ripple] = field(default_factory=list)
+
+    def emit_pulse(self, glyph_id: str):
+        """Emit a new ripple for a glyph event."""
+        ripple = Ripple(
+            origin=self.position,
+            amplitude=1.0,
+            frequency=0.2,
+            phase_shift=self.t % (2 * math.pi),
+            timestamp=self.t,
+            glyph_id=glyph_id,
+        )
+        self.ripples.append(ripple)
+
+    def update(self, dt: float):
+        """Update MoonNode internal time and emit ripple pulses as per pulse rate."""
+        self.t += dt
+        cycle_index = int((self.t * self.pulse_rate) % len(self.glyph_cycle))
+        glyph_id = self.glyph_cycle[cycle_index]
+        self.emit_pulse(glyph_id)
+
+def compute_ripples(
+    glyphs: List[str],
+    spiral_positions: List[Tuple[float, float]],
+    grid_size: Tuple[int, int] = (50, 50),
+    spacing: float = 1.0,
+    time: float = 0.0
+) -> List[List[float]]:
+    """
+    Compute a 2D grid of ripple interference values.
+
+    :param glyphs: List of glyph IDs to simulate
+    :param spiral_positions: Corresponding positions for each glyph
+    :param grid_size: Tuple of (width, height) for the output grid
+    :param spacing: Distance between grid points
+    :param time: Simulation time
+    :return: 2D list representing combined ripple values at each grid point
+    """
+    width, height = grid_size
+
+    # Create ripples for each glyph at its position, all starting at `time`
+    ripples = []
+    for glyph_id, pos in zip(glyphs, spiral_positions):
+        ripple = Ripple(
+            origin=pos,
+            amplitude=1.0,
+            frequency=0.2,
+            phase_shift=0.0,
+            timestamp=time,
+            glyph_id=glyph_id
+        )
+        ripples.append(ripple)
+
+    # Prepare the 2D field grid
+    field = [[0.0 for _ in range(width)] for _ in range(height)]
+
+    # Calculate cumulative wave interference at each grid point
+    for i in range(height):
+        for j in range(width):
+            x = (j - width // 2) * spacing
+            y = (i - height // 2) * spacing
+            total_value = 0.0
+            for ripple in ripples:
+                total_value += ripple.value_at(x, y, time)
+            field[i][j] = total_value
+
+    return field

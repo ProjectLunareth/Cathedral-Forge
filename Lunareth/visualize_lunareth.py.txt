@@ -1,0 +1,261 @@
+"""
+Lunareth – Recursive Bloom
+──────────────────────────
+✓   Dark-navy background
+✓   Loading screen (progress bar)
+✓   Recursive bloom + particle field
+✓   35 %-opacity vault overlay (vault_circle_transparent.png)
+✓   All helpers & debug hooks included
+"""
+
+# ──────────────────────────────────────────────────────────────
+#  Imports
+# ──────────────────────────────────────────────────────────────
+import math, sys, random, os, pygame, numpy as np
+
+# If you keep your little logger:
+try:
+    from lunareth_debug import dbg
+except ModuleNotFoundError:
+    def dbg(msg):                      # tiny fallback
+        print(f"[dbg] {msg}")
+
+# (unused for now, but preserved for later work)
+from core import moon_node_engine
+import codex_gibberlink as gib
+
+# ──────────────────────────────────────────────────────────────
+#  Compile-time constants
+# ──────────────────────────────────────────────────────────────
+WINDOWED_WIDTH, WINDOWED_HEIGHT = 800, 800
+FULLSCREEN_DEFAULT = False
+
+BG_COLOR   = (10, 10, 30)
+GLOW_COLOR = (120, 200, 255)
+
+SAFE_RADIUS_RATIO = 0.45
+SCALE_RATIO       = 0.275
+POINTS            = 240
+
+BASE_LINE_WIDTH     = 1.5
+ALPHA_DECAY         = 0.78
+MAX_TOTAL_PARTICLES = 1500
+MIN_PARTICLE_ALPHA  = 4
+
+# ──────────────────────────────────────────────────────────────
+#  Pygame init + window
+# ──────────────────────────────────────────────────────────────
+pygame.init()
+pygame.mixer.init(frequency=44100, size=-16, channels=1, buffer=512)
+clock  = pygame.time.Clock()
+font   = pygame.font.SysFont("Segoe UI Symbol", 18)
+PIXEL4 = pygame.Surface((4, 4), pygame.SRCALPHA)
+
+WIDTH  = WINDOWED_WIDTH
+HEIGHT = WINDOWED_HEIGHT
+CENTER = (WIDTH // 2, HEIGHT // 2)
+SCALE  = min(WIDTH, HEIGHT) * SCALE_RATIO
+SAFE_RADIUS = min(WIDTH, HEIGHT) * SAFE_RADIUS_RATIO
+
+def create_screen(fullscreen: bool):
+    global WIDTH, HEIGHT, CENTER, SCALE, SAFE_RADIUS, screen
+    if fullscreen:
+        modes = pygame.display.list_modes()
+        WIDTH, HEIGHT = modes[0] if modes else (1024, 768)
+        flags = pygame.FULLSCREEN | pygame.HWSURFACE | pygame.DOUBLEBUF
+    else:
+        WIDTH, HEIGHT = WINDOWED_WIDTH, WINDOWED_HEIGHT
+        flags = pygame.RESIZABLE | pygame.DOUBLEBUF
+
+    screen = pygame.display.set_mode((WIDTH, HEIGHT), flags)
+    pygame.display.set_caption("Lunareth – Recursive Bloom")
+
+    CENTER       = (WIDTH // 2, HEIGHT // 2)
+    SCALE        = min(WIDTH, HEIGHT) * SCALE_RATIO
+    SAFE_RADIUS  = min(WIDTH, HEIGHT) * SAFE_RADIUS_RATIO
+    dbg(f"Display ready {WIDTH}×{HEIGHT}")
+
+create_screen(FULLSCREEN_DEFAULT)
+
+# ──────────────────────────────────────────────────────────────
+#  Loading-bar helper
+# ──────────────────────────────────────────────────────────────
+def draw_loading(message: str, pct: float):
+    screen.fill(BG_COLOR)
+    bar_w = int(WIDTH * 0.6)
+    bar_x = WIDTH // 2 - bar_w // 2
+    bar_y = HEIGHT // 2 + 20
+
+    pygame.draw.rect(screen, (80, 80, 120), (bar_x, bar_y, bar_w, 18), 2)
+    pygame.draw.rect(screen, (120, 220, 255),
+                     (bar_x + 2, bar_y + 2, int((bar_w - 4) * pct), 14))
+
+    txt = font.render(message, True, (200, 220, 255))
+    screen.blit(txt, (WIDTH // 2 - txt.get_width() // 2, HEIGHT // 2 - 30))
+    pygame.display.flip()
+    pygame.event.pump()
+
+# ──────────────────────────────────────────────────────────────
+#  Minimal asset load (only the vault overlay right now)
+# ──────────────────────────────────────────────────────────────
+draw_loading("Loading ► Vault overlay", 0.0)
+try:
+    VAULT_IMG = pygame.image.load("vault_circle_transparent.png").convert_alpha()
+    VAULT_IMG = pygame.transform.smoothscale(VAULT_IMG, (WIDTH, HEIGHT))
+    VAULT_IMG.set_alpha(int(255 * 0.35))          # 35 % opacity
+    draw_loading("✓  Vault overlay ready", 1.0)
+except Exception as e:
+    dbg(f"Warning: vault overlay missing – {e}")
+    VAULT_IMG = None
+    draw_loading("⚠  Vault overlay not found", 1.0)
+pygame.time.wait(300)                              # brief pause
+
+# ──────────────────────────────────────────────────────────────
+#  Tiny maths helpers
+# ──────────────────────────────────────────────────────────────
+lerp       = lambda a, b, t: a + (b - a) * t
+lerp_color = lambda c1, c2, t: tuple(int(lerp(a, b, t)) for a, b in zip(c1, c2))
+
+def clamp(x: float, y: float):
+    dx, dy = x - CENTER[0], y - CENTER[1]
+    d = math.hypot(dx, dy)
+    if d > SAFE_RADIUS:
+        s = SAFE_RADIUS / d
+        dx *= s; dy *= s
+    return CENTER[0] + dx, CENTER[1] + dy
+
+# ──────────────────────────────────────────────────────────────
+#  Geometry generators
+# ──────────────────────────────────────────────────────────────
+def polygon_points(sides: int, radius: float):
+    sides        = max(3, sides)
+    pts_per_edge = POINTS / sides
+    out = []
+    for i in range(POINTS):
+        e      = int(i // pts_per_edge)
+        e_next = (e + 1) % sides
+        t      = (i % pts_per_edge) / pts_per_edge
+        a1     = 2 * math.pi * e       / sides
+        a2     = 2 * math.pi * e_next  / sides
+        x1, y1 = radius * math.cos(a1), radius * math.sin(a1)
+        x2, y2 = radius * math.cos(a2), radius * math.sin(a2)
+        x, y   = (1 - t) * x1 + t * x2, (1 - t) * y1 + t * y2
+        out.append(clamp(CENTER[0] + x, CENTER[1] + y))
+    return out
+
+# (keep for future glyph work)
+def shape_points(shape_id: str, radius: float):
+    if shape_id.startswith("poly"):
+        return polygon_points(int(shape_id[4:]), radius)
+    # fallback circle
+    return [(CENTER[0] + radius * math.cos(2*math.pi*i/POINTS),
+             CENTER[1] + radius * math.sin(2*math.pi*i/POINTS))
+            for i in range(POINTS)]
+
+# ──────────────────────────────────────────────────────────────
+#  Recursive bloom
+# ──────────────────────────────────────────────────────────────
+def draw_recursive_bloom(surf: pygame.Surface, centre, r, sides, depth=3):
+    if depth == 0:
+        return
+    step = 2 * math.pi / sides
+    for i in range(sides):
+        a  = i * step
+        x  = centre[0] + r * math.cos(a)
+        y  = centre[1] + r * math.sin(a)
+        pygame.draw.line(surf, GLOW_COLOR, centre, (x, y), 1)
+        draw_recursive_bloom(surf, (x, y), r * 0.5, sides, depth - 1)
+
+# ──────────────────────────────────────────────────────────────
+#  Particle class
+# ──────────────────────────────────────────────────────────────
+class GlyphParticle:
+    def __init__(self, pos):
+        self.x, self.y = pos
+        ang  = random.uniform(0, 2 * math.pi)
+        spd  = random.uniform(20, 60)
+        self.vx, self.vy = math.cos(ang) * spd, math.sin(ang) * spd
+        self.life  = random.uniform(2, 4)
+        self.age   = 0
+        self.alpha = 255
+
+    def update(self, dt):
+        self.age += dt
+        self.x   += self.vx * dt
+        self.y   += self.vy * dt
+        self.vx  *= 0.99
+        self.vy  *= 0.99
+        self.alpha = max(MIN_PARTICLE_ALPHA, int(255 * math.exp(-1.1 * self.age)))
+
+    def draw(self, surf):
+        if self.alpha <= MIN_PARTICLE_ALPHA:
+            return
+        PIXEL4.fill((*GLOW_COLOR, self.alpha))
+        surf.blit(PIXEL4, (self.x - 2, self.y - 2))
+
+particles   : list[GlyphParticle] = []
+_spawn_timer = 0.0
+
+# ──────────────────────────────────────────────────────────────
+#  Frame compositor
+# ──────────────────────────────────────────────────────────────
+def build_frame(dt: float) -> pygame.Surface:
+    global _spawn_timer
+
+    surf = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+    surf.fill(BG_COLOR)
+
+    # recursive bloom
+    draw_recursive_bloom(surf, CENTER, SCALE * 0.75, 6, depth=3)
+
+    # particles
+    _spawn_timer += dt
+    if _spawn_timer >= 0.02 and len(particles) < MAX_TOTAL_PARTICLES:
+        ang = random.uniform(0, 2*math.pi)
+        edge = (CENTER[0] + math.cos(ang) * SCALE * 0.75,
+                CENTER[1] + math.sin(ang) * SCALE * 0.75)
+        particles.append(GlyphParticle(edge))
+        _spawn_timer = 0.0
+
+    for p in particles[:]:
+        p.update(dt)
+        if p.alpha <= MIN_PARTICLE_ALPHA and p.age > p.life:
+            particles.remove(p)
+        else:
+            p.draw(surf)
+
+    # 35 %-opacity vault overlay
+    if VAULT_IMG:
+        surf.blit(VAULT_IMG, (0, 0))
+
+    return surf
+
+# ──────────────────────────────────────────────────────────────
+#  Main loop
+# ──────────────────────────────────────────────────────────────
+def main():
+    dbg("Entering main loop")
+    running = True
+    while running:
+        dt = clock.tick(60) / 1000.0
+
+        for e in pygame.event.get():
+            if e.type == pygame.QUIT or (e.type == pygame.KEYDOWN and e.key == pygame.K_ESCAPE):
+                running = False
+            elif e.type == pygame.KEYDOWN and e.key == pygame.K_f:
+                # toggle fullscreen on-the-fly
+                create_screen(screen.get_flags() ^ pygame.FULLSCREEN)
+
+        frame = build_frame(dt)
+        screen.blit(frame, (0, 0))
+
+        fps_txt = font.render(f"FPS: {clock.get_fps():.1f}", True, GLOW_COLOR)
+        screen.blit(fps_txt, (10, 10))
+
+        pygame.display.flip()
+
+    pygame.quit()
+    sys.exit()
+
+if __name__ == "__main__":
+    main()

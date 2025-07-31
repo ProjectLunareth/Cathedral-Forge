@@ -1,0 +1,13 @@
+# debug_util.py
+from datetime import datetime
+
+DEBUG_FILE = open("lunareth_debug.log", "w", buffering=1)
+
+def dbg(msg):
+    stamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+    line = f"[{stamp}] {msg}"
+    print(line)
+    try:
+        DEBUG_FILE.write(line + "\n")
+    except Exception:
+        pass

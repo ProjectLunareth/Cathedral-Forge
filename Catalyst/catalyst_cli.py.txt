@@ -1,0 +1,62 @@
+import argparse
+from stegano import lsb
+import os
+
+ZERO_WIDTH_SPACE = '\u200b'
+
+def encode_lsb(input_path, output_path, message):
+    secret = lsb.hide(input_path, message)
+    secret.save(output_path)
+    print(f"[+] Message encoded and saved to {output_path}")
+
+def decode_lsb(input_path):
+    message = lsb.reveal(input_path)
+    print(f"[+] Hidden message: {message}")
+
+def encode_zwc(input_text, hidden_message):
+    encoded = input_text + ''.join(f"{ZERO_WIDTH_SPACE}{c}" for c in hidden_message)
+    print(f"Original: {input_text}")
+    print(f"Encoded: {encoded}")
+    print(f"Decoded: {input_text}{hidden_message}")
+    with open("encoded_zwc.txt", "w", encoding="utf-8") as f:
+        f.write(encoded)
+    print("Message encoded: encoded_zwc.txt")
+
+def decode_zwc(input_file):
+    with open(input_file, "r", encoding="utf-8") as f:
+        content = f.read()
+    hidden = ''.join(c for i, c in enumerate(content) if c == ZERO_WIDTH_SPACE and i + 1 < len(content))
+    extracted = ''.join(content[i + 1] for i, c in enumerate(content) if c == ZERO_WIDTH_SPACE and i + 1 < len(content))
+    print(f"[+] Hidden message: {extracted}")
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--mode", choices=["lsb", "zwc"], required=True)
+    parser.add_argument("--encode", action="store_true")
+    parser.add_argument("--decode", action="store_true")
+    parser.add_argument("--input", required=True)
+    parser.add_argument("--output")
+    parser.add_argument("--message")
+
+    args = parser.parse_args()
+
+    if args.mode == "lsb":
+        if args.encode:
+            if not args.output or not args.message:
+                print("LSB encoding requires --output and --message")
+                return
+            encode_lsb(args.input, args.output, args.message)
+        elif args.decode:
+            decode_lsb(args.input)
+
+    elif args.mode == "zwc":
+        if args.encode:
+            if not args.message:
+                print("ZWC encoding requires --message")
+                return
+            encode_zwc(args.input, args.message)
+        elif args.decode:
+            decode_zwc(args.input)
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,31 @@
+# C:/Lunareth/core/ripple_interference_analyzer.py
+
+from typing import List, Tuple
+from moon_node_engine import Ripple
+
+def detect_interference(ripples: List[Ripple], x: float, y: float, t: float, threshold: float = 1.5) -> Tuple[float, List[str]]:
+    """Detects cumulative ripple value at a point and which glyphs contribute"""
+    total = 0.0
+    contributors = []
+
+    for ripple in ripples:
+        val = ripple.value_at(x, y, t)
+        total += val
+        if abs(val) > threshold:
+            contributors.append(ripple.glyph_id)
+
+    return total, contributors
+
+def interference_map(ripples: List[Ripple], grid: Tuple[int, int], spacing: float, t: float) -> List[List[Tuple[float, List[str]]]]:
+    """Returns a 2D map of cumulative interference values and contributing glyphs"""
+    width, height = grid
+    result = [[(0.0, []) for _ in range(width)] for _ in range(height)]
+
+    for i in range(height):
+        for j in range(width):
+            x = (j - width // 2) * spacing
+            y = (i - height // 2) * spacing
+            val, glyphs = detect_interference(ripples, x, y, t)
+            result[i][j] = (val, glyphs)
+
+    return result

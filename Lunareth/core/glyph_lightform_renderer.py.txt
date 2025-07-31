@@ -1,0 +1,25 @@
+# core/glyph_lightform_renderer.py
+import numpy as np
+from typing import Tuple
+from glyphs import Glyph, GLYPHS   # master dataclass list
+
+# ── Active glyph helper ─────────────────────────────
+def get_active_glyph() -> Glyph:
+    """Return the Phase 0 glyph for now (replace with real logic)."""
+    return next(g for g in GLYPHS if g.phase == 0)
+
+# ── Light‑field renderer (dummy but valid) ──────────
+def render_lightfield(
+    moon_node: "MoonNode",
+    grid_size: Tuple[int, int] = (64, 64),
+    spacing: float = 1.0,
+) -> np.ndarray:
+    """
+    Return a 2‑D float32 array suitable for matplotlib.imshow().
+    Currently a simple time‑modulated ripple pattern.
+    """
+    x = np.linspace(-5, 5, grid_size[0])
+    y = np.linspace(-5, 5, grid_size[1])
+    X, Y = np.meshgrid(x, y)
+    Z = np.sin((X**2 + Y**2) * 0.4 + moon_node.t) * np.cos(X - Y + moon_node.t)
+    return Z.astype(np.float32)

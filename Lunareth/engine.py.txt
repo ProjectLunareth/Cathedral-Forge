@@ -1,0 +1,161 @@
+# engine.py  — Lunareth hybrid GPU / CPU fractal-polygon renderer
+import math
+import numpy as np
+
+# -- Attempt GPU acceleration with CuPy --------------------------------
+try:
+    import cupy as cp
+    GPU_ENABLED = True
+    xp = cp
+except ImportError:
+    GPU_ENABLED = False
+    xp = np
+
+from numba import njit, prange               # CPU speed-up fallback
+from core.moon_node_engine import MoonNode
+from core.glyph_lightform_renderer import GLYPHS
+
+# -- Singleton MoonNode -------------------------------------------------
+_moon_node = None
+def init_moon_node():
+    global _moon_node
+    if _moon_node is None:
+        names = [g.name if hasattr(g, "name") else g["name"] for g in GLYPHS]
+        _moon_node = MoonNode(glyph_cycle=names)
+
+# ========== Utility: vectorised HSV-to-RGB for xp (NumPy or CuPy) ==========
+def hsv_to_rgb(h, s, v):
+    """
+    Vectorised HSV→RGB. h,s,v ∈ [0,1]; works for both NumPy & CuPy.
+    """
+    i = xp.floor(h * 6.0)
+    f = h * 6.0 - i
+    p = v * (1.0 - s)
+    q = v * (1.0 - f * s)
+    t = v * (1.0 - (1.0 - f) * s)
+
+    i_mod = (i.astype(int) % 6)
+    conds = [i_mod == k for k in range(6)]
+    r = xp.select(conds, [v, q, p, p, t, v])
+    g = xp.select(conds, [t, v, v, q, p, p])
+    b = xp.select(conds, [p, p, t, v, v, q])
+    return r, g, b
+
+# ========== CPU fallback helpers (Numba JIT) for polygon / fractal ==========
+@njit(parallel=True, fastmath=True)
+def polygon_flow_cpu(X, Y, sides, time):
+    H, W = X.shape
+    out = np.empty_like(X)
+    two_pi = 2 * math.pi
+    sector = two_pi / sides
+    for i in prange(H):
+        for j in prange(W):
+            x = X[i, j]
+            y = Y[i, j]
+            r = math.sqrt(x*x + y*y)
+            theta = math.atan2(y, x)
+            mod = theta % sector
+            wave = math.cos(mod * sides * 0.5 + time)
+            out[i, j] = wave * math.exp(-0.1 * r)
+    return out
+
+@njit(parallel=True, fastmath=True)
+def fractal_noise_cpu(X, Y, t, octaves=4):
+    H, W = X.shape
+    out = np.zeros_like(X)
+    for i in prange(H):
+        for j in prange(W):
+            x = X[i, j]
+            y = Y[i, j]
+            val = 0.0
+            freq = 1.0
+            amp = 1.0
+            for _ in range(octaves):
+                val += amp * math.sin(freq * x + t) * math.cos(freq * y - t)
+                freq *= 2.0
+                amp *= 0.5
+            out[i, j] = val
+    return out
+
+# ========== Core GPU / CPU-hybrid frame generator =========================
+def generate_frame(
+    t: float,
+    glyph,
+    moon_factor: float,
+    memory_depth: int,
+    grid_size: int = 512,
+    distortion: float = 1.0,
+    polygon_sides: int = None,   # <-- Added parameter for user control
+):
+    """
+    • Breath-pulsed zoom               • Polygon ↔ radial morph
+    • Fractal pseudo-Perlin overlay    • Moon-synced color cycling
+    • GPU (CuPy) when available; CPU + Numba otherwise
+    """
+    init_moon_node()
+    xp = cp if GPU_ENABLED else np
+
+    # -- Coordinate grid with breath zoom ---------------------------------
+    breath_zoom = 1.0 + 0.25 * math.sin(t * 0.2)        # inhale-exhale cycle
+    span = 5.0 / breath_zoom
+    coords = xp.linspace(-span, span, grid_size)
+    X, Y = xp.meshgrid(coords, coords)
+
+    R = xp.sqrt(X**2 + Y**2)
+    theta = xp.arctan2(Y, X)
+
+    # -- Dynamic polygon symmetry (3-32 sides) ----------------------------
+    if polygon_sides is not None:
+        sides = polygon_sides
+    else:
+        # default cycling between 3 and 8 sides
+        sides = 3 + int((t * 0.05 + memory_depth + moon_factor * 6) % 6)
+
+    if GPU_ENABLED:
+        sector = 2 * xp.pi / sides
+        poly_wave = xp.cos((theta % sector) * sides * 0.5 + t) * xp.exp(-0.1 * R)
+    else:
+        poly_wave = polygon_flow_cpu(X, Y, sides, t)
+
+    # -- Fractal / Perlin-style layer --------------------------------------
+    if GPU_ENABLED:
+        freq = xp.array([1, 2, 4, 8], dtype=xp.float32)
+        amp = xp.array([1.0, 0.5, 0.25, 0.125], dtype=xp.float32)
+        fractal = xp.zeros_like(X)
+        for f, a in zip(freq, amp):
+            fractal += a * xp.sin(f * X + t) * xp.cos(f * Y - t)
+    else:
+        fractal = fractal_noise_cpu(X, Y, t, 4)
+
+    # -- Base ripple & interference ----------------------------------------
+    phase = t + distortion * xp.sin(t * 0.1)
+    ripple = xp.sin(2 * xp.pi * R - phase)
+    intensity = xp.cos(R * moon_factor * 3) * xp.exp(-0.15 * R)
+    interference = xp.sin(R * memory_depth * 0.4 + t * 0.25)
+
+    scalar = (
+        0.45 * ripple * intensity +
+        0.35 * poly_wave +
+        0.2  * fractal * interference
+    )
+
+    # Normalize scalar → [0,1] for brightness
+    scalar_min = scalar.min()
+    scalar_ptp = scalar.max() - scalar_min + 1e-8
+    brightness = (scalar - scalar_min) / scalar_ptp
+
+    # -- HSV → RGB color mapping (hue cycles with moon & time) --------------
+    base_hue = (moon_factor * 0.6 + t * 0.03) % 1.0
+    hue_grid = (base_hue + (theta / (2*xp.pi))) % 1.0   # spatial hue ring
+    sat = xp.ones_like(brightness, dtype=xp.float32)
+    val = brightness.astype(xp.float32)
+
+    r, g, b = hsv_to_rgb(hue_grid, sat, val)
+    rgb = xp.stack([r, g, b], axis=-1).astype(xp.float32)
+
+    # -- Pulse glyph → MoonNode --------------------------------------------
+    if _moon_node:
+        glyph_name = getattr(glyph, "name", str(glyph))
+        _moon_node.emit_pulse(glyph_name)
+
+    return cp.asnumpy(rgb) if GPU_ENABLED else rgb
