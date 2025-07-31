@@ -1,0 +1,32 @@
+/* Import Tailwind CSS directives */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Define global styles and custom properties */
+body {
+  @apply bg-gray-900 text-gray-100;
+  font-family: 'Inter', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background: radial-gradient(circle at center, #0a0a1a 0%, #000000 100%);
+}
+
+/* Custom scrollbar for a more thematic feel */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #1a1a2e;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: #4a044e;
+  border-radius: 4px;
+  border: 2px solid #1a1a2e;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: #7e22ce;
+}
